@@ -44,6 +44,26 @@ function singleLine(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Cap for body-derived row text (MULT-34). An inbox row shows one line, but
+ * React Native still measures the whole string it is handed — comment
+ * notifications carry bodies up to ~20KB, which made every visible row
+ * expensive to lay out in a ~1,000-row list. The row shows a summary; the
+ * full body lives on the detail screen. Divergence from web: web truncates
+ * the same line with CSS, which does not pay the layout cost of the full
+ * string.
+ */
+export const ROW_BODY_MAX_CHARS = 160;
+
+/** Collapse to one line and cut to the row cap, with an ellipsis. */
+export function summarizeInboxBody(
+  body: string | null | undefined,
+): string {
+  const line = singleLine(body);
+  if (line.length <= ROW_BODY_MAX_CHARS) return line;
+  return `${line.slice(0, ROW_BODY_MAX_CHARS)}…`;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

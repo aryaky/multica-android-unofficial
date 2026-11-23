@@ -21,6 +21,7 @@ import { StatusIcon } from "@/components/ui/status-icon";
 import { PriorityIcon } from "@/components/ui/priority-icon";
 import { useActorLookup } from "@/data/use-actor-name";
 import { useIssueStatuses } from "@/lib/use-issue-statuses";
+import { summarizeInboxBody } from "@/lib/inbox-display";
 import { i18n, useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -142,7 +143,10 @@ export function InboxDetailLabel({
           ? t("type.set_due_date", { date: shortDate(details.to) })
           : t("type.removed_due_date");
       case "new_comment":
-        return singleLine(item.body) || t(TYPE_KEY[item.type]);
+        // Body-derived rows render a SUMMARY, never the full body: bodies
+        // reach ~20KB and RN lays out the whole string even behind one
+        // line (MULT-34). The detail screen shows the full comment.
+        return summarizeInboxBody(item.body) || t(TYPE_KEY[item.type]);
       case "reaction_added":
         return details.emoji
           ? t("type.reacted_with", { emoji: details.emoji })
@@ -152,14 +156,14 @@ export function InboxDetailLabel({
           ? t("type.created_with_agent", { identifier: details.identifier })
           : t(TYPE_KEY[item.type]);
       case "quick_create_failed": {
-        const detail = singleLine(details.error) || singleLine(item.body);
+        const detail = singleLine(details.error) || summarizeInboxBody(item.body);
         return detail ? t("type.failed_with_detail", { detail }) : t(TYPE_KEY[item.type]);
       }
       // Mirrors packages/views/inbox/components/inbox-detail-label.tsx: the
       // unconfirmed outcome deliberately drops the "Failed:" prefix, because
       // the issue may actually have been created.
       case "quick_create_unconfirmed": {
-        const detail = singleLine(details.error) || singleLine(item.body);
+        const detail = singleLine(details.error) || summarizeInboxBody(item.body);
         return detail || t(TYPE_KEY[item.type]);
       }
       case "autopilot_quota_exceeded":

@@ -312,6 +312,16 @@ export default memo(function Inbox() {
           )}
           contentContainerClassName="pb-6"
           contentContainerStyle={READING_WIDTH_STYLE}
+          // Virtualization tuning (MULT-34): an owner inbox runs ~1,000
+          // rows and the bare FlatList mounted every one of them on first
+          // paint. `getItemLayout` is deliberately NOT set — rows wrap at
+          // large font sizes (bottom label + time), so heights are not
+          // fixed and a guessed constant would misposition the scroll
+          // offsets.
+          initialNumToRender={8}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews
           renderItem={({ item }) => (
             <SwipeableInboxRow
               item={item}

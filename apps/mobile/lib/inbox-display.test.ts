@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { InboxItem } from "@multica/core/types";
 import {
+  ROW_BODY_MAX_CHARS,
   deduplicateInboxItems,
   filterInboxView,
   getAutopilotQuotaBody,
   getInboxDisplayTitle,
   getInboxNavigationTarget,
+  summarizeInboxBody,
 } from "./inbox-display";
 
 function item(overrides: Partial<InboxItem>): InboxItem {
@@ -161,5 +163,34 @@ describe("filterInboxView", () => {
     expect(filterInboxView(rows, "unread").map((r) => r.id)).toEqual(["b"]);
     expect(filterInboxView(rows, "all").map((r) => r.id)).toEqual(["a", "b"]);
     expect(filterInboxView(rows, "archived")).toBe(rows);
+  });
+});
+
+describe("summarizeInboxBody", () => {
+  // MULT-34: rows must not lay out the full body. Comment bodies reach
+  // ~20KB and React Native measures the entire string even when only one
+  // line is visible.
+  it("collapses whitespace to a single line", () => {
+    expect(summarizeInboxBody("first\nsecond   third\n\n")).toBe(
+      "first second third",
+    );
+  });
+
+  it("cuts long bodies to the row cap with an ellipsis", () => {
+    const long = "x".repeat(20_000);
+    const summary = summarizeInboxBody(long);
+    expect(summary).toHaveLength(ROW_BODY_MAX_CHARS + 1); // + ellipsis
+    expect(summary.endsWith("…")).toBe(true);
+    expect(summary.startsWith("x".repeat(ROW_BODY_MAX_CHARS))).toBe(true);
+  });
+
+  it("leaves bodies at or under the cap untouched", () => {
+    const exact = "y".repeat(ROW_BODY_MAX_CHARS);
+    expect(summarizeInboxBody(exact)).toBe(exact);
+  });
+
+  it("maps null and undefined to an empty string", () => {
+    expect(summarizeInboxBody(null)).toBe("");
+    expect(summarizeInboxBody(undefined)).toBe("");
   });
 });
