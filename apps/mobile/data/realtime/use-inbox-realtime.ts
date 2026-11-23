@@ -59,6 +59,10 @@ export function useInboxRealtime() {
         // per notification (MULT-34). The badge summary is a separate
         // small read and is refreshed either way.
         ws.on("inbox:new", (payload) => {
+          // Old-format frames (pre-InboxItem payloads) carry no row: there
+          // is nothing to patch and nothing to trust. Core guards the same
+          // way (packages/core real-time sync).
+          if (!payload?.item) return;
           void applyInboxNewItem(qc, wsId, payload.item);
           void refreshInboxUnreadSummary(qc);
         }),
