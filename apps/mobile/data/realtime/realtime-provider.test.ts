@@ -32,11 +32,16 @@ vi.mock("@/data/server-config-store", () => ({
   getCfAccessHeaders: () => ({}),
 }));
 vi.mock("@/lib/client-os", () => ({ CLIENT_OS: "android" }));
+vi.mock("@/lib/client-version", () => ({ CLIENT_VERSION: "2.1.1-test" }));
 
 // Run the provider's effect and its actual WSClient, without rendering RN.
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
-  constructor() { MockWebSocket.instances.push(this); }
+  url: string;
+  constructor(url?: string) {
+    this.url = url ?? "";
+    MockWebSocket.instances.push(this);
+  }
   close() {}
 }
 
@@ -77,5 +82,18 @@ describe("RealtimeProvider foreground recovery", () => {
     expect(MockWebSocket.instances).toHaveLength(2);
     lifecycle.onAppState!("active");
     expect(MockWebSocket.instances).toHaveLength(3);
+  });
+
+  it("reports the real app version in the connect params", async () => {
+    // MULT-34: the WS handshake used a hardcoded "0.1.0", so server logs
+    // could not split traffic by the client build that produced it.
+    const { RealtimeProvider } = await import("./realtime-provider");
+    RealtimeProvider({ children: null });
+    cleanup = lifecycle.setup!();
+    await Promise.resolve();
+
+    const url = new URL(MockWebSocket.instances[0]!.url);
+    expect(url.searchParams.get("client_version")).toBe("2.1.1-test");
+    expect(url.searchParams.get("client_version")).not.toBe("0.1.0");
   });
 });

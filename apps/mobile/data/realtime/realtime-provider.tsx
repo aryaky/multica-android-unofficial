@@ -43,6 +43,7 @@ import { api } from "@/data/api";
 import { getCfAccessHeaders, getServerBaseUrl } from "@/data/server-config-store";
 import { wsUrlFor } from "@/lib/server-config";
 import { CLIENT_OS } from "@/lib/client-os";
+import { CLIENT_VERSION } from "@/lib/client-version";
 import { WSClient } from "./ws-client";
 import { logger } from "@/lib/logger";
 
@@ -94,7 +95,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         // reconnecting with a credential on its way to expiring.
         getToken: () => api.getToken(),
         workspaceSlug: wsSlug,
-        clientVersion: "0.1.0",
+        clientVersion: CLIENT_VERSION,
         logger,
       });
       ws.connect();

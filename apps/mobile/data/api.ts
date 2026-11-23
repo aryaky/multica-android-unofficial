@@ -235,6 +235,7 @@ import { buildCommentCreateBody, buildCommentUpdateBody } from "./revision";
 import { getCfAccessHeaders, getServerBaseUrl } from "./server-config-store";
 import { looksLikeAccessBlock } from "@/lib/server-config";
 import { CLIENT_OS } from "@/lib/client-os";
+import { CLIENT_VERSION } from "@/lib/client-version";
 import { logger } from "@/lib/logger";
 
 /**
@@ -392,7 +393,7 @@ class ApiClient {
       "Content-Type": "application/json",
       "X-Client-Platform": "mobile",
       "X-Client-OS": CLIENT_OS,
-      "X-Client-Version": "0.1.0",
+      "X-Client-Version": CLIENT_VERSION,
       "X-Request-ID": rid,
       // Cloudflare Access service token (empty object in direct mode).
       ...getCfAccessHeaders(),
@@ -2312,7 +2313,7 @@ class ApiClient {
       // No Content-Type — let fetch set the multipart boundary.
       "X-Client-Platform": "mobile",
       "X-Client-OS": CLIENT_OS,
-      "X-Client-Version": "0.1.0",
+      "X-Client-Version": CLIENT_VERSION,
       "X-Request-ID": rid,
       ...getCfAccessHeaders(),
     };

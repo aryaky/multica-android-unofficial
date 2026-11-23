@@ -10,6 +10,7 @@ vi.mock("@/data/server-config-store", () => ({
   getCfAccessHeaders: () => ({ "CF-Access-Client-Secret": "cf-secret-value-1234" }),
 }));
 vi.mock("@/lib/client-os", () => ({ CLIENT_OS: "android" }));
+vi.mock("@/lib/client-version", () => ({ CLIENT_VERSION: "2.1.1-test" }));
 vi.mock("@/data/workspace-store", () => ({ getCurrentSlug: () => null }));
 
 const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0LXVzZXIifQ.c2lnbmF0dXJlLXRlc3Q";

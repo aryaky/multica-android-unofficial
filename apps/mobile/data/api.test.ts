@@ -9,6 +9,7 @@ vi.mock("@/data/server-config-store", () => ({
   getCfAccessHeaders: () => ({}),
 }));
 vi.mock("@/lib/client-os", () => ({ CLIENT_OS: "android" }));
+vi.mock("@/lib/client-version", () => ({ CLIENT_VERSION: "2.1.1-test" }));
 
 // The real store pulls in expo-secure-store; the client only needs the slug.
 vi.mock("@/data/workspace-store", () => ({ getCurrentSlug: () => null }));
@@ -136,5 +137,40 @@ describe("api.getAttachmentDownloadUrls", () => {
     } finally {
       api.setToken(null);
     }
+  });
+});
+
+describe("client identity headers", () => {
+  const fetchMock = vi.fn(
+    async (_url: string, _init: RequestInit) =>
+      new Response("[]", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+
+  beforeEach(() => {
+    fetchMock.mockClear();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  // MULT-34: X-Client-Version was hardcoded "0.1.0" (the private package
+  // version), so server logs could not split requests by the installed
+  // build and could not verify any shipped fix. It now carries the Expo
+  // config version — the value baked into the APK.
+  it("sends the real app version on every request", async () => {
+    await api.listInbox();
+
+    const headers = fetchMock.mock.calls[0]![1].headers as Record<string, string>;
+    expect(headers["X-Client-Version"]).toBe("2.1.1-test");
+    expect(headers["X-Client-Version"]).not.toBe("0.1.0");
+    expect(headers["X-Client-Platform"]).toBe("mobile");
+    expect(headers["X-Client-OS"]).toBe("android");
   });
 });

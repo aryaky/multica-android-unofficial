@@ -11,6 +11,7 @@ vi.mock("@/data/server-config-store", () => ({
   getCfAccessHeaders: () => ({}),
 }));
 vi.mock("@/lib/client-os", () => ({ CLIENT_OS: "android" }));
+vi.mock("@/lib/client-version", () => ({ CLIENT_VERSION: "2.1.1-test" }));
 vi.mock("@/data/workspace-store", () => ({ getCurrentSlug: () => "ws" }));
 
 const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>();
