@@ -6,8 +6,13 @@
  * 1. `inbox:*` events → invalidate the inbox list AND the cross-workspace
  *    unread summary that backs the tab badge (the summary lives under its
  *    own account-level key, so the list invalidation does not reach it).
- *    inbox payloads are small and (apart from inbox:new) rare, so refetching
- *    is cheaper than maintaining per-event patchers. Multi-device parity:
+ *    The read/archive payloads carry only ids, so refetching is cheaper
+ *    than maintaining per-event patchers. EXCEPTION `inbox:new`: its
+ *    payload is the complete row, and a full list refetch per notification
+ *    (~1.9MB) is what produced the 1–7.5s inbox tail — that one patches
+ *    the cache locally via `applyInboxNewItem`, which falls back to the
+ *    full refresh only when membership really changes (MULT-34).
+ *    Multi-device parity:
  *    subscribing to inbox:read / inbox:archived means a read/archive on web
  *    reaches mobile within the next WS frame (web's use-realtime-sync
  *    deliberately DOESN'T subscribe to those, but mobile's stricter freshness
@@ -27,6 +32,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useWSSubscriptions } from "@/lib/use-ws-subscriptions";
 import {
+  applyInboxNewItem,
   dropInboxItemsByIssue,
   patchInboxIssueStatus,
   refreshInboxList,
@@ -48,7 +54,14 @@ export function useInboxRealtime() {
 
       return [
         // Inbox-domain events: refetch the inbox list and the badge count.
-        ws.on("inbox:new", invalidate),
+        // `inbox:new` is the exception — the payload carries the full row,
+        // so it is patched into the cache instead of re-downloading ~1.9MB
+        // per notification (MULT-34). The badge summary is a separate
+        // small read and is refreshed either way.
+        ws.on("inbox:new", (payload) => {
+          void applyInboxNewItem(qc, wsId, payload.item);
+          void refreshInboxUnreadSummary(qc);
+        }),
         ws.on("inbox:read", invalidate),
         // Mobile has no mark-unread affordance yet (web/desktop right-click
         // only), but a mark-unread there must un-read the row here too —
