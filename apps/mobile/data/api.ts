@@ -419,9 +419,29 @@ class ApiClient {
     //       facebook/react-native#35384). Without this, a refetch
     //       triggered by WS reconnect can leave the FlatList pull-to-refresh
     //       spinner stuck on the screen indefinitely.
+    //
+    // The deadline covers the WHOLE request — response headers AND body.
+    // Clearing the timer the moment headers arrived left `res.json()`
+    // unbounded: a ~1.9MB inbox body on a weak link hung ~998s with the
+    // pull-to-refresh spinner stuck forever (MULT-34, MULT-28). On timeout
+    // we abort the controller (kills the native task) AND reject a shared
+    // deadline promise that every still-pending network await is raced
+    // against — so the request settles within the ceiling even on platforms
+    // whose fetch never rejects an already-started body read after abort.
     const controller = new AbortController();
+    let timedOut = false;
+    let rejectDeadline!: (err: Error) => void;
+    const deadline = new Promise<never>((_, reject) => {
+      rejectDeadline = reject;
+    });
+    // Races that the real work wins leave this rejection unconsumed; keep it
+    // from surfacing as an unhandled rejection.
+    deadline.catch(() => {});
     const timeoutId = setTimeout(() => {
-      controller.abort(new Error(`request timed out after ${FETCH_TIMEOUT_MS}ms`));
+      timedOut = true;
+      const reason = new Error(`request timed out after ${FETCH_TIMEOUT_MS}ms`);
+      controller.abort(reason);
+      rejectDeadline(reason);
     }, FETCH_TIMEOUT_MS);
     const callerSignal = init.signal;
     const onCallerAbort = () => controller.abort(callerSignal?.reason);
@@ -430,23 +450,80 @@ class ApiClient {
       else callerSignal.addEventListener("abort", onCallerAbort);
     }
 
+    // Every await that can still be waiting on the network — the fetch and
+    // each body read — goes through this race, so the ceiling bounds all of
+    // them, not just the response headers.
+    const withDeadline = <T>(p: Promise<T>): Promise<T> =>
+      Promise.race([p, deadline]);
+
     logger.log(`[api] → ${method} ${path}`, { rid });
 
-    let res: Response;
     try {
-      res = await fetch(requestUrl, {
-        ...init,
-        signal: controller.signal,
-        headers,
+      const res = await withDeadline(
+        fetch(requestUrl, {
+          ...init,
+          signal: controller.signal,
+          headers,
+        }),
+      );
+      const duration = Date.now() - start;
+
+      // Checked before `res.ok`: a followed Access redirect is a 200.
+      const accessBlock = await withDeadline(accessBlockFrom(res, requestUrl));
+      if (accessBlock) {
+        logger.warn(`[api] ← ACCESS BLOCKED ${path}`, {
+          rid,
+          status: res.status,
+          duration: `${duration}ms`,
+        });
+        throw accessBlock;
+      }
+
+      if (!res.ok) {
+        // 401 sign-out hook: invoke once, let the platform layer (auth-store)
+        // clear the token + navigate. Subsequent requests in flight will also
+        // 401 and re-enter here, so the callback must be idempotent.
+        if (res.status === 401) {
+          this.options.onUnauthorized?.();
+        }
+
+        let body: unknown;
+        try {
+          body = await withDeadline(res.json());
+        } catch {
+          body = undefined;
+        }
+        const message =
+          (body && typeof body === "object" && "message" in body
+            ? String((body as { message: unknown }).message)
+            : null) ?? `${res.status} ${res.statusText}`;
+
+        const level = res.status === 404 ? "warn" : "error";
+        logger[level](`[api] ← ${res.status} ${path}`, {
+          rid,
+          duration: `${duration}ms`,
+          error: message,
+        });
+
+        throw new ApiError(message, res.status, body);
+      }
+
+      logger.log(`[api] ← ${res.status} ${path}`, {
+        rid,
+        duration: `${duration}ms`,
       });
+
+      if (res.status === 204) return undefined as T;
+      return (await withDeadline(res.json())) as T;
     } catch (err) {
-      clearTimeout(timeoutId);
-      callerSignal?.removeEventListener("abort", onCallerAbort);
-      // Re-throw with a clearer message if this was our own timeout abort.
+      // Our deadline fired — during the fetch OR during any body read. The
+      // AbortError branch stays for platform aborts we did not schedule
+      // ourselves and the caller did not ask for.
       if (
-        err instanceof Error &&
-        err.name === "AbortError" &&
-        !callerSignal?.aborted
+        timedOut ||
+        (err instanceof Error &&
+          err.name === "AbortError" &&
+          !callerSignal?.aborted)
       ) {
         const duration = Date.now() - start;
         logger.warn(`[api] ← TIMEOUT ${path}`, {
@@ -460,58 +537,10 @@ class ApiClient {
         );
       }
       throw err;
+    } finally {
+      clearTimeout(timeoutId);
+      callerSignal?.removeEventListener("abort", onCallerAbort);
     }
-    clearTimeout(timeoutId);
-    callerSignal?.removeEventListener("abort", onCallerAbort);
-    const duration = Date.now() - start;
-
-    // Checked before `res.ok`: a followed Access redirect is a 200.
-    const accessBlock = await accessBlockFrom(res, requestUrl);
-    if (accessBlock) {
-      logger.warn(`[api] ← ACCESS BLOCKED ${path}`, {
-        rid,
-        status: res.status,
-        duration: `${duration}ms`,
-      });
-      throw accessBlock;
-    }
-
-    if (!res.ok) {
-      // 401 sign-out hook: invoke once, let the platform layer (auth-store)
-      // clear the token + navigate. Subsequent requests in flight will also
-      // 401 and re-enter here, so the callback must be idempotent.
-      if (res.status === 401) {
-        this.options.onUnauthorized?.();
-      }
-
-      let body: unknown;
-      try {
-        body = await res.json();
-      } catch {
-        body = undefined;
-      }
-      const message =
-        (body && typeof body === "object" && "message" in body
-          ? String((body as { message: unknown }).message)
-          : null) ?? `${res.status} ${res.statusText}`;
-
-      const level = res.status === 404 ? "warn" : "error";
-      logger[level](`[api] ← ${res.status} ${path}`, {
-        rid,
-        duration: `${duration}ms`,
-        error: message,
-      });
-
-      throw new ApiError(message, res.status, body);
-    }
-
-    logger.log(`[api] ← ${res.status} ${path}`, {
-      rid,
-      duration: `${duration}ms`,
-    });
-
-    if (res.status === 204) return undefined as T;
-    return (await res.json()) as T;
   }
 
   /**
